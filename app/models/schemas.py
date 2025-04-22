@@ -72,3 +72,23 @@ class ChatResponse(BaseModel):
     response: str
     sources: List[Dict[str, Any]] = []
     images: Optional[List[Dict[str, Any]]] = None
+
+# User schemas
+class UserBase(BaseModel):
+    username: str
+    email: str
+    role: str = "user"
+
+class UserCreate(UserBase):
+    password: str
+
+class UserCreateAdmin(UserCreate):
+    role: str = "admin"
+
+class User(UserBase):
+    id: int
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

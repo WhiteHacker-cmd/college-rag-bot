@@ -1,13 +1,16 @@
 # Authentication and authorization
 # app/core/security.py
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 import os
+
+from app.models.database import get_db, User
 
 # Generate a secret key for JWT
 # In production, set this via environment variable
@@ -24,7 +27,11 @@ class TokenData(BaseModel):
     username: Optional[str] = None
     role: Optional[str] = None
 
-# Simple user database (replace with actual DB in production)
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# For backwards compatibility during transition
 fake_users_db = {
     "admin": {
         "username": "admin",
@@ -38,9 +45,6 @@ fake_users_db = {
     }
 }
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
 def verify_password(plain_password, hashed_password):
     """Verify password against hash"""
     return pwd_context.verify(plain_password, hashed_password)
@@ -49,20 +53,36 @@ def get_password_hash(password):
     """Generate password hash"""
     return pwd_context.hash(password)
 
-def get_user(username: str):
+def get_user(username: str, db: Session):
     """Get user from database"""
+    # First try the database
+    db_user = db.query(User).filter(User.username == username).first()
+    if db_user:
+        return db_user
+    
+    # Fall back to fake_users_db during transition
     if username in fake_users_db:
         user_dict = fake_users_db[username]
         return user_dict
+    
     return None
 
-def authenticate_user(username: str, password: str):
+def authenticate_user(username: str, password: str, db: Session):
     """Authenticate user with username and password"""
-    user = get_user(username)
+    user = get_user(username, db)
     if not user:
         return False
-    if not verify_password(password, user["hashed_password"]):
-        return False
+    
+    # Handle both DB model and dict cases
+    if hasattr(user, 'hashed_password'):
+        # DB user model
+        if not verify_password(password, user.hashed_password):
+            return False
+    else:
+        # Dict from fake_users_db
+        if not verify_password(password, user["hashed_password"]):
+            return False
+    
     return user
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None):
@@ -76,7 +96,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """Get current user from token"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -91,18 +111,43 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         token_data = TokenData(username=username, role=payload.get("role"))
     except JWTError:
         raise credentials_exception
-    user = get_user(username=token_data.username)
+    
+    user = get_user(username=token_data.username, db=db)
     if user is None:
         raise credentials_exception
+    
+    # Convert DB model to dict if needed
+    if hasattr(user, 'username'):
+        # It's a DB model, convert to dict
+        user_dict = {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+            "is_active": user.is_active
+        }
+        return user_dict
+    
+    # It's already a dict (from fake_users_db)
     return user
 
 async def get_current_active_user(current_user: dict = Depends(get_current_user)):
     """Get current active user"""
+    if hasattr(current_user, 'is_active'):
+        if not current_user.is_active:
+            raise HTTPException(status_code=400, detail="Inactive user")
+    elif isinstance(current_user, dict) and 'is_active' in current_user:
+        if not current_user['is_active']:
+            raise HTTPException(status_code=400, detail="Inactive user")
+    
     return current_user
 
 def get_admin_user(current_user: dict = Depends(get_current_user)):
     """Check if user is admin"""
-    if current_user.get("role") != "admin":
+    # Handle both DB model and dict cases
+    role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
+    
+    if role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"

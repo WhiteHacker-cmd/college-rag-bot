@@ -3,6 +3,9 @@
 import os
 from pydantic_settings import BaseSettings
 from typing import Dict, Any, Optional
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class Settings(BaseSettings):
     APP_NAME: str = "College RAG Chatbot"
@@ -14,7 +17,12 @@ class Settings(BaseSettings):
     
     # LLM settings
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "llama3.1:8b")
+    # LLM_MODEL: str = os.getenv("LLM_MODEL", "llama3.1:8b")
+
+    # In app/core/config.py
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    # Update LLM_MODEL to use a Groq model like "llama3-70b-8192" or "mixtral-8x7b-32768"
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "llama3-70b-8192")
     
     # Path settings
     BASE_DATA_PATH: str = os.getenv("BASE_DATA_PATH", "./data/colleges")

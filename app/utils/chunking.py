@@ -9,7 +9,8 @@ from langchain_community.document_loaders import (
     PyPDFLoader, 
     Docx2txtLoader, 
     CSVLoader,
-    UnstructuredHTMLLoader
+    UnstructuredHTMLLoader,
+    UnstructuredMarkdownLoader  # Added Markdown loader
 )
 from langchain.docstore.document import Document as LangchainDocument
 import logging
@@ -41,6 +42,8 @@ class DocumentProcessor:
             return CSVLoader(file_path)
         elif extension in ['.html', '.htm']:
             return UnstructuredHTMLLoader(file_path)
+        elif extension == '.md':
+            return UnstructuredMarkdownLoader(file_path)  # Added Markdown support
         else:
             raise ValueError(f"Unsupported file type: {extension}")
     
@@ -55,12 +58,27 @@ class DocumentProcessor:
                 for doc in documents:
                     doc.metadata.update(metadata)
             
-            # Split documents into chunks
-            chunks = self.text_splitter.split_documents(documents)
+            # Special handling for markdown files to maintain structure
+            extension = os.path.splitext(file_path)[1].lower()
+            if extension == '.md':
+                # Adjust separator weights for markdown to better preserve structure
+                md_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=self.chunk_size,
+                    chunk_overlap=self.chunk_overlap,
+                    separators=["\n## ", "\n### ", "\n#### ", "\n\n", "\n", ". ", " ", ""]
+                )
+                chunks = md_splitter.split_documents(documents)
+            else:
+                # Use the default splitter for other document types
+                chunks = self.text_splitter.split_documents(documents)
             
             # Add chunk index to metadata
             for i, chunk in enumerate(chunks):
                 chunk.metadata['chunk_index'] = i
+                
+                # For markdown files, try to extract header information to enhance metadata
+                if extension == '.md':
+                    chunk.metadata.update(self.extract_markdown_headers(chunk.page_content))
             
             return chunks
         except Exception as e:
@@ -96,3 +114,32 @@ class DocumentProcessor:
             structured_data['urls'] = urls
         
         return structured_data
+    
+    def extract_markdown_headers(self, text: str) -> Dict[str, Any]:
+        """Extract header information from markdown text"""
+        header_info = {}
+        
+        # Extract main header (h1) if present
+        h1_pattern = r'^# (.+)$'
+        h1_match = re.search(h1_pattern, text, re.MULTILINE)
+        if h1_match:
+            header_info['title'] = h1_match.group(1).strip()
+        
+        # Extract secondary headers (h2)
+        h2_pattern = r'^## (.+)$'
+        h2_matches = re.findall(h2_pattern, text, re.MULTILINE)
+        if h2_matches:
+            header_info['sections'] = h2_matches
+        
+        # Extract YAML frontmatter if present
+        frontmatter_pattern = r'---\n(.*?)\n---'
+        frontmatter_match = re.search(frontmatter_pattern, text, re.DOTALL)
+        if frontmatter_match:
+            frontmatter = frontmatter_match.group(1)
+            # Extract key-value pairs from frontmatter
+            for line in frontmatter.split('\n'):
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    header_info[key.strip()] = value.strip()
+        
+        return header_info

@@ -14,9 +14,9 @@ class CollegeCreate(CollegeBase):
     pass
 
 class College(CollegeBase):
-    id: int
-    created_at: datetime
-    updated_at: datetime
+    id: int|None = None
+    created_at: datetime|None = None
+    updated_at: datetime|None = None
 
     class Config:
         from_attributes = True

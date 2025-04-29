@@ -15,11 +15,17 @@ class EmbeddingManager:
         """Initialize the embedding model"""
         try:
             # Try to use Ollama for embeddings first
-            self.embeddings = OllamaEmbeddings(
-                model="llama3.1",
-                base_url=settings.OLLAMA_BASE_URL
+            # self.embeddings = OllamaEmbeddings(
+            #     model="llama3.1:8b",
+            #     base_url=settings.OLLAMA_BASE_URL
+            # )
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name=model_name,
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True}
             )
-            logger.info("Using Ollama embeddings")
+            # logger.info("Using Ollama embeddings")
+            logger.info(f"Using HuggingFace embeddings with model {model_name}")
         except Exception as e:
             logger.warning(f"Failed to initialize Ollama embeddings: {str(e)}. Falling back to HuggingFace embeddings.")
             # Fall back to HuggingFace embeddings

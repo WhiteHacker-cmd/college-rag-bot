@@ -14,7 +14,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 async def process_chat_query(
     chat_request: ChatRequest,
     db: Session = Depends(get_db),
-    _: dict = Depends(get_current_active_user)
+    # _: dict = Depends(get_current_active_user)
 ):
     """Process a chat query and return a response with relevant context"""
     chat_service = ChatService(db)

@@ -5,3 +5,7 @@ langchain
 openai
 faiss-cpu
 pydantic
+unstructured
+markdown
+langchain-groq
+python-dotenv

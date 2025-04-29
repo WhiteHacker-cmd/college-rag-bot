@@ -1,11 +1,10 @@
-# Admin endpoints for document management
 # app/routers/admin_router.py
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
-from app.models.database import get_db
+from app.models.database import get_db, College as CollegeModel, Document as DocumentModel
 from app.models.schemas import College, CollegeCreate, Document, DocumentCreate, Image, ImageCreate
 from app.services.document_service import DocumentService
 from app.core.security import get_admin_user
@@ -22,11 +21,18 @@ async def create_college(
 ):
     """Create a new college"""
     # Check if college with same code already exists
-    existing = db.query(College).filter(College.code == college.code).first()
+    existing = db.query(CollegeModel).filter(CollegeModel.code == college.code).first()
     if existing:
         raise HTTPException(status_code=400, detail="College with this code already exists")
     
-    db_college = College(**college.dict())
+    # Fix for Pydantic v2 compatibility - use model_dump() instead of dict() if using Pydantic v2
+    # For Pydantic v1, keep using dict()
+    try:
+        college_data = college.model_dump()  # Pydantic v2
+    except AttributeError:
+        college_data = college.dict()  # Pydantic v1
+    
+    db_college = CollegeModel(**college_data)
     db.add(db_college)
     db.commit()
     db.refresh(db_college)
@@ -45,7 +51,7 @@ async def get_colleges(
     _: dict = Depends(get_admin_user)
 ):
     """Get all colleges"""
-    return db.query(College).all()
+    return db.query(CollegeModel).all()
 
 @router.get("/colleges/{college_id}", response_model=College)
 async def get_college(
@@ -54,7 +60,7 @@ async def get_college(
     _: dict = Depends(get_admin_user)
 ):
     """Get a specific college"""
-    college = db.query(College).filter(College.id == college_id).first()
+    college = db.query(CollegeModel).filter(CollegeModel.id == college_id).first()
     if not college:
         raise HTTPException(status_code=404, detail="College not found")
     return college
@@ -69,6 +75,11 @@ async def upload_document(
     _: dict = Depends(get_admin_user)
 ):
     """Upload a document for a specific college"""
+    # Check if college exists
+    college = db.query(CollegeModel).filter(CollegeModel.id == college_id).first()
+    if not college:
+        raise HTTPException(status_code=404, detail="College not found")
+        
     document_service = DocumentService(db)
     return await document_service.upload_document(file, college_id, background_tasks)
 
@@ -79,6 +90,11 @@ async def get_college_documents(
     _: dict = Depends(get_admin_user)
 ):
     """Get all documents for a specific college"""
+    # Check if college exists
+    college = db.query(College).filter(College.id == college_id).first()
+    if not college:
+        raise HTTPException(status_code=404, detail="College not found")
+        
     documents = db.query(Document).filter(Document.college_id == college_id).all()
     return documents
 
@@ -107,17 +123,27 @@ async def upload_image(
     _: dict = Depends(get_admin_user)
 ):
     """Upload an image for a specific college"""
+    # Check if college exists
+    college = db.query(College).filter(College.id == college_id).first()
+    if not college:
+        raise HTTPException(status_code=404, detail="College not found")
+        
     document_service = DocumentService(db)
     return await document_service.upload_image(file, college_id, title, description, tags)
 
 @router.get("/images/{college_id}", response_model=List[Image])
 async def get_college_images(
     college_id: int,
-    tag: Optional[str] = None,
+    tag: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: dict = Depends(get_admin_user)
 ):
     """Get all images for a specific college, optionally filtered by tag"""
+    # Check if college exists
+    college = db.query(College).filter(College.id == college_id).first()
+    if not college:
+        raise HTTPException(status_code=404, detail="College not found")
+        
     document_service = DocumentService(db)
     return document_service.get_college_images(college_id, tag)
 
